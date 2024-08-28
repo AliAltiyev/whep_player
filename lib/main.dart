@@ -1,13 +1,67 @@
-import 'dart:developer';
-
 import 'package:flutter/material.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'dart:async';
 
-import 'package:whep_player/whep.dart';
+import 'package:flutter_webrtc_sdk/flutter_webrtc_sdk.dart';
 
 void main() {
   runApp(const WHEPTestApp());
+}
+
+class Player extends StatelessWidget {
+  final WebRTCPlayerBloc controller;
+
+  const Player(this.controller, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomWebRTCPlayer(
+        controller: controller,
+        playerBuilder: (_, __, player) => SizedBox.expand(child: player),
+        placeholder: Container());
+  }
+}
+
+class PlayerIdState {
+  final Uri? url;
+
+  const PlayerIdState(this.url);
+}
+
+class PlayerInitState extends PlayerIdState {
+  const PlayerInitState() : super(null);
+}
+
+class PlayerLoadingState extends PlayerIdState {
+  const PlayerLoadingState(Uri super.url);
+}
+
+class PlaylistCubit extends Cubit<PlayerIdState> {
+  final controller = WhepPlayerController();
+
+  PlaylistCubit() : super(const PlayerInitState());
+
+  void setUrl(Uri? url) async {
+    if (url == null) {
+      emit(const PlayerInitState());
+      controller.bye();
+      return;
+    }
+
+    emit(PlayerLoadingState(url));
+
+    final id = url.pathSegments.where((e) => e.isNotEmpty).join('/');
+    controller.connect(url.toString(), id);
+
+    await controller.stream.firstWhere((e) => e == WebRTCPlayerState.playing);
+    emit(PlayerIdState(url));
+  }
+
+  @override
+  Future<void> close() async {
+    controller.dispose();
+    super.close();
+  }
 }
 
 class WHEPTestApp extends StatelessWidget {
@@ -15,13 +69,15 @@ class WHEPTestApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'WHEP Protocol Test',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: const WHEPTestPage(),
-    );
+    return BlocProvider(
+        create: (_) => PlaylistCubit(),
+        child: MaterialApp(
+          title: 'WHEP Protocol Test',
+          theme: ThemeData(
+            primarySwatch: Colors.blue,
+          ),
+          home: const WHEPTestPage(),
+        ));
   }
 }
 
@@ -33,59 +89,13 @@ class WHEPTestPage extends StatefulWidget {
 }
 
 class _WHEPTestPageState extends State<WHEPTestPage> {
-  RTCPeerConnection? _peerConnection;
-  WHEPAdapter? _whepAdapter;
   final TextEditingController _urlController = TextEditingController.fromValue(
       const TextEditingValue(text: 'https://whep5.fastocloud.com/api/v2/whep/channel/test332'));
   String _logs = '';
-  final RTCVideoRenderer _renderer = RTCVideoRenderer();
 
   @override
   void initState() {
     super.initState();
-    _renderer.initialize().then((_) {
-      // Renderer is initialized
-    }).catchError((error) {
-      _log('Error initializing renderer: $error');
-    });
-    _initializePeerConnection();
-  }
-
-  Future<void> _initializePeerConnection() async {
-    Map<String, dynamic> configuration = {
-      "iceServers": [
-        {"urls": "stun:stun.l.google.com:19302"}
-      ]
-    };
-
-    final Map<String, dynamic> offerSdpConstraints = {
-      "mandatory": {},
-      "optional": [
-        {"DtlsSrtpKeyAgreement": true}
-      ],
-    };
-
-    _peerConnection = await createPeerConnection(configuration, offerSdpConstraints);
-    _whepAdapter = WHEPAdapter(
-      _peerConnection!,
-      Uri.parse('https://whep5.fastocloud.com/api/v2/whep/channel/test332'),
-      (error) => _log('Error: $error'),
-      MediaConstraints(
-        audioOnly: true,
-        videoOnly: true,
-      ),
-      (MediaStream stream) {
-        setState(() {
-          _renderer.srcObject = stream;
-          log(stream.toString());
-          log(stream.getVideoTracks().length.toString());
-          log(stream.getAudioTracks().length.toString());
-        });
-        _log('Received video stream.');
-      },
-    );
-
-    _whepAdapter!.enableDebug();
   }
 
   void _log(String message) {
@@ -95,23 +105,15 @@ class _WHEPTestPageState extends State<WHEPTestPage> {
   }
 
   Future<void> _connect() async {
-    if (_whepAdapter != null) {
-      await _whepAdapter!.connect();
-      _log('Connected to WHEP server.');
-    }
+    context
+        .read<PlaylistCubit>()
+        .setUrl(Uri.parse('https://whep5.fastocloud.com/api/v2/whep/channel/test332'));
   }
 
-  Future<void> _disconnect() async {
-    if (_whepAdapter != null) {
-      await _whepAdapter!.disconnect();
-      _log('Disconnected from WHEP server.');
-    }
-  }
+  Future<void> _disconnect() async {}
 
   @override
   void dispose() {
-    _renderer.dispose();
-    _peerConnection?.dispose();
     super.dispose();
   }
 
@@ -133,11 +135,7 @@ class _WHEPTestPageState extends State<WHEPTestPage> {
             ),
             const SizedBox(height: 20),
             SizedBox(
-              height: MediaQuery.sizeOf(context).height / 2,
-              width: MediaQuery.sizeOf(context).width,
-              child: RTCVideoView(_renderer,
-                  mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
-            ),
+                height: 320, width: 640, child: Player(context.read<PlaylistCubit>().controller)),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [

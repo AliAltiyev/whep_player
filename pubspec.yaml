@@ -4,14 +4,21 @@ publish_to: 'none'
 version: 0.1.0
 
 environment:
-  sdk: ^3.5.1
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=1.22.0'
 
 dependencies:
   flutter:
     sdk: flutter
-  flutter_webrtc: ^0.11.6+hotfix.1
-  http: ^1.2.2
+  flutter_webrtc_sdk:
+    git:
+      url: https://gitlab.com/fastogt/flutter_webrtc_sdk.git
+      ref: main
 
+  http: ^1.2.2
+  flutter_bloc: ^8.1.6
+
+  flutter_webrtc: any
 dev_dependencies:
   flutter_test:
     sdk: flutter

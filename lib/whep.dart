@@ -1,6 +1,7 @@
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
+import 'dart:developer';
 
 class WHEPAdapter {
   RTCPeerConnection? _localPeer;
@@ -9,21 +10,13 @@ class WHEPAdapter {
   bool _waitingForCandidates = false;
   Timer? _iceGatheringTimeout;
   String? _resource;
-  late Function(String) _onErrorHandler;
-  late bool _audio;
-  late bool _video;
-  late MediaConstraints _mediaConstraints;
   final Function(MediaStream) _onStreamReceivedCallback;
 
-  static const int DEFAULT_CONNECT_TIMEOUT = 2000;
+  static const int defaultConnectTimeout = 2000;
 
   WHEPAdapter(RTCPeerConnection peer, Uri channelUrl, Function(String) onError,
-      MediaConstraints mediaConstraints, this._onStreamReceivedCallback) {
-    _mediaConstraints = mediaConstraints;
+      this._onStreamReceivedCallback) {
     _channelUrl = channelUrl;
-    _onErrorHandler = onError;
-    _audio = !_mediaConstraints.videoOnly;
-    _video = !_mediaConstraints.audioOnly;
     resetPeer(peer);
   }
 
@@ -34,7 +27,7 @@ class WHEPAdapter {
   void resetPeer(RTCPeerConnection newPeer) {
     _localPeer = newPeer;
     _localPeer?.onIceGatheringState = _onIceGatheringStateChange;
-    _localPeer?.onIceCandidate = _onIceCandidate;
+    _localPeer?.onIceCandidate = onicecandidate;
     _localPeer?.onTrack = (RTCTrackEvent event) {
       if (event.track.kind == 'video' && event.streams.isNotEmpty) {
         _onStreamReceivedCallback(event.streams.first);
@@ -42,11 +35,15 @@ class WHEPAdapter {
     };
   }
 
+  RTCPeerConnection? getPeer() {
+    return _localPeer;
+  }
+
   Future<void> connect() async {
     try {
       await _initSdpExchange();
     } catch (error) {
-      print(error.toString());
+      log(error.toString());
     }
   }
 
@@ -72,7 +69,7 @@ class WHEPAdapter {
         await _localPeer!.setLocalDescription(answer);
         _waitingForCandidates = true;
         _iceGatheringTimeout =
-            Timer(const Duration(milliseconds: DEFAULT_CONNECT_TIMEOUT), _onIceGatheringTimeout);
+            Timer(const Duration(milliseconds: defaultConnectTimeout), _onIceGatheringTimeout);
       } catch (error) {
         _log(answer.sdp);
         rethrow;
@@ -80,19 +77,10 @@ class WHEPAdapter {
     }
   }
 
-  void _onIceCandidate(RTCIceCandidate? candidate) async {
+  void onicecandidate(RTCIceCandidate? candidate) async {
     if (candidate == null || _resource == null) {
       return;
     }
-
-    try {
-      var response = await http.patch(Uri.parse(_resource!),
-          headers: {
-            'Content-Type': 'application/trickle-ice-sdpfrag',
-          },
-          body: candidate.candidate);
-      _log('Received Patch response: ${response.body}');
-    } catch (e) {}
   }
 
   void _onIceGatheringStateChange(RTCIceGatheringState state) {
@@ -117,6 +105,7 @@ class WHEPAdapter {
   Future<void> _onDoneWaitingForCandidates() async {
     _waitingForCandidates = false;
     _iceGatheringTimeout?.cancel();
+
     await _sendAnswer();
   }
 
@@ -153,14 +142,12 @@ class WHEPAdapter {
     }
 
     if (_resource != null) {
-      RTCSessionDescription? answer = await _localPeer!.getRemoteDescription();
-      final response = await http.patch(
-        Uri.parse(_resource!),
-        headers: {'Content-Type': 'application/sdp'},
-        body: answer!.sdp,
-      );
+      RTCSessionDescription? answer = await _localPeer!.getLocalDescription();
+      final body = answer!.sdp;
+      final response = await http.patch(Uri.parse(_resource!),
+          headers: {'Content-Type': 'application/sdp'}, body: body);
 
-      if (response.statusCode != 200) {
+      if (response.statusCode != 201) {
         _error('sendAnswer response: ${response.statusCode}');
       }
     }
@@ -168,18 +155,11 @@ class WHEPAdapter {
 
   void _log(dynamic message, [dynamic data]) {
     if (_debug) {
-      print('WebRTC-player $message ${data ?? ''}');
+      log('WebRTC-player $message ${data ?? ''}');
     }
   }
 
   void _error(dynamic message) {
-    print('WebRTC-player $message');
+    log('WebRTC-player $message');
   }
-}
-
-class MediaConstraints {
-  final bool audioOnly;
-  final bool videoOnly;
-
-  MediaConstraints({this.audioOnly = false, this.videoOnly = false});
 }
