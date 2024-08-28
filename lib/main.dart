@@ -2,7 +2,6 @@ import 'dart:developer';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:http/http.dart' as http;
 import 'dart:async';
 
 import 'package:whep_player/whep.dart';
@@ -69,7 +68,7 @@ class _WHEPTestPageState extends State<WHEPTestPage> {
     _peerConnection = await createPeerConnection(configuration, offerSdpConstraints);
     _whepAdapter = WHEPAdapter(
       _peerConnection!,
-      Uri.parse(_urlController.text),
+      Uri.parse('https://whep5.fastocloud.com/api/v2/whep/channel/test332'),
       (error) => _log('Error: $error'),
       MediaConstraints(
         audioOnly: true,
@@ -79,6 +78,8 @@ class _WHEPTestPageState extends State<WHEPTestPage> {
         setState(() {
           _renderer.srcObject = stream;
           log(stream.toString());
+          log(stream.getVideoTracks().length.toString());
+          log(stream.getAudioTracks().length.toString());
         });
         _log('Received video stream.');
       },

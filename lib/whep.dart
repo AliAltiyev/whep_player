@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:developer';
+
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
@@ -14,7 +17,7 @@ class WHEPAdapter {
   late bool _audio;
   late bool _video;
   late MediaConstraints _mediaConstraints;
-  Function(MediaStream) _onStreamReceivedCallback;
+  final Function(MediaStream) _onStreamReceivedCallback;
 
   static const int DEFAULT_CONNECT_TIMEOUT = 2000;
 
@@ -37,7 +40,7 @@ class WHEPAdapter {
   void resetPeer(RTCPeerConnection newPeer) {
     _localPeer = newPeer;
     _localPeer?.onIceGatheringState = _onIceGatheringStateChange;
-    _localPeer?.onIceCandidate = _onIceCandidate;
+    _localPeer?.onIceCandidate = onicecandidate;
     _localPeer?.onTrack = (RTCTrackEvent event) {
       if (event.track.kind == 'video' && event.streams.isNotEmpty) {
         _onStreamReceivedCallback(event.streams.first);
@@ -98,7 +101,7 @@ class WHEPAdapter {
       await _localPeer!.setLocalDescription(offer);
       _waitingForCandidates = true;
       _iceGatheringTimeout =
-          Timer(Duration(milliseconds: DEFAULT_CONNECT_TIMEOUT), _onIceGatheringTimeout);
+          Timer(const Duration(milliseconds: DEFAULT_CONNECT_TIMEOUT), _onIceGatheringTimeout);
     } else {
       if (_localPeer != null) {
         String offer = await _requestOffer();
@@ -109,7 +112,7 @@ class WHEPAdapter {
           await _localPeer!.setLocalDescription(answer);
           _waitingForCandidates = true;
           _iceGatheringTimeout =
-              Timer(Duration(milliseconds: DEFAULT_CONNECT_TIMEOUT), _onIceGatheringTimeout);
+              Timer(const Duration(milliseconds: DEFAULT_CONNECT_TIMEOUT), _onIceGatheringTimeout);
         } catch (error) {
           _log(answer.sdp);
           rethrow;
@@ -118,10 +121,19 @@ class WHEPAdapter {
     }
   }
 
-  void _onIceCandidate(event) {
-    if (event.candidate == null) {
+  void onicecandidate(RTCIceCandidate? candidate) async {
+    if (candidate == null || _resource == null) {
       return;
     }
+    log('Sending candidate: ${candidate.toMap().toString()}');
+    try {
+      var respose = await http.patch(Uri.parse(_resource!),
+          headers: {
+            'Content-Type': 'application/trickle-ice-sdpfrag',
+          },
+          body: candidate.candidate);
+      log('Received Patch response: ${respose.body}');
+    } catch (e) {}
   }
 
   void _onIceGatheringStateChange(RTCIceGatheringState state) {
@@ -177,7 +189,7 @@ class WHEPAdapter {
         _log('WHEP Resource', _resource);
         return response.body;
       } else {
-        throw Exception(await response.body);
+        throw Exception(response.body);
       }
     }
     return '';
